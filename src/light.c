@@ -1,10 +1,9 @@
-#include <stdbool.h>
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
 #include "light.h"
+
 
 #define DEBOUNCE_TIME 200
 #define INCREMENT_FACTOR 10
