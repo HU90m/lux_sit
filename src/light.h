@@ -19,11 +19,11 @@ void pwm_initialise()
     TCCR0B |= (1<<CS01);
     TCCR2B |= (1<<CS21);
 
-    // initialise with 50% duty cycle
-    OCR0A = 0x80;
-    OCR0B = 0x80;
-    OCR2A = 0x80;
-    OCR2B = 0x80;
+    // initialise with 0% duty cycle
+    OCR0A = 0x00;
+    OCR0B = 0x00;
+    OCR2A = 0x00;
+    OCR2B = 0x00;
 
     // 4 PWM channel outputs
     DDRB |= 1<<PB3; // OC2A
@@ -91,7 +91,7 @@ uint16_t counter_get()
 //
 void button_initialise()
 {
-    // set pin D2 as output
+    // set pin D2 as input
     DDRD &= ~(1 << PD2);
 
     // setup pull up resistor on pin D2
@@ -112,16 +112,16 @@ void button_initialise()
 //
 void rotary_encoder_initialise()
 {
-    // set pins output
+    // set pins input
     DDRC  &= ~_BV(PC4);
     DDRC  &= ~_BV(PC5);
 
-    // setup pull up resistor on pins
-    PORTC |=  _BV(PC4);
-    PORTC |=  _BV(PC5);
+    // disable pull up resistor on pins
+    PORTC &= ~_BV(PC4);
+    PORTC &= ~_BV(PC5);
 
     // enable pin change interrupt 1
-    PCICR  |= _BV(PCIE1);
+    PCICR |= _BV(PCIE1);
 
     // mask the two used pins through
     PCMSK1  = _BV(PCINT12);

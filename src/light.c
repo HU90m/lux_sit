@@ -5,8 +5,19 @@
 #include "light.h"
 
 
-#define DEBOUNCE_TIME 200
-#define INCREMENT_FACTOR 10
+// 16MHz clk has a 1024 pre-scalar so measured in 0.064 ms
+// 16 bit counter
+#define DEBOUNCE_TIME 2000
+
+#define INCREMENT_FACTOR 3
+
+
+// Pinout Config
+#define RED_PWM_REG OCR0B
+#define GREEN_PWM_REG OCR0A
+#define BLUE_PWM_REG OCR2B
+#define WHITE_PWM_REG OCR2A
+
 
 //------------------------------------------------------------------------------
 // Type Definitions
@@ -18,7 +29,7 @@
 //
 typedef enum
 {
-    OFF,
+    ALL,
     RED,
     GREEN,
     BLUE,
@@ -33,7 +44,7 @@ typedef enum
 //
 // The current state of the state machine.
 //
-volatile state_t state = OFF;
+volatile state_t state = ALL;
 
 //
 // The magnitude and direction of the rotary movement.
@@ -57,23 +68,23 @@ ISR(INT0_vect)
     {
         switch(state)
         {
-        case OFF:
-            state = RED;
-            break;
-        case RED:
-            state = GREEN;
-            break;
-        case GREEN:
-            state = BLUE;
-            break;
-        case BLUE:
+        case ALL:
             state = WHITE;
             break;
         case WHITE:
-            state = OFF;
+            state = BLUE;
+            break;
+        case BLUE:
+            state = GREEN;
+            break;
+        case GREEN:
+            state = RED;
+            break;
+        case RED:
+            state = ALL;
             break;
         default:
-            state = OFF;
+            state = ALL;
             break;
         }
     }
@@ -115,6 +126,26 @@ ISR(PCINT1_vect)
 
 
 //------------------------------------------------------------------------------
+// Functions
+//------------------------------------------------------------------------------
+//
+uint8_t find_new_dutycycle(uint8_t current_dutycycle, int8_t dutycycle_change) {
+    int16_t new_dutycycle;
+
+    new_dutycycle = current_dutycycle + dutycycle_change;
+
+    if(new_dutycycle > 255){
+        return 255;
+    }
+    if(new_dutycycle < 0){
+        return 0;
+    }
+
+    return current_dutycycle + dutycycle_change;
+}
+
+
+//------------------------------------------------------------------------------
 // Main Loop
 //------------------------------------------------------------------------------
 //
@@ -133,10 +164,11 @@ int main()
 
     // variables
     state_t state_old = state;
-    uint8_t dutycycle_red = 0xF;
-    uint8_t dutycycle_green = 0xF;
-    uint8_t dutycycle_blue = 0xF;
-    uint8_t dutycycle_white = 0xF;
+    int8_t increment_factor;
+    uint8_t dutycycle_red = 0x0;
+    uint8_t dutycycle_green = 0x0;
+    uint8_t dutycycle_blue = 0x0;
+    uint8_t dutycycle_white = 0x0;
 
     while(1)
     {
@@ -144,33 +176,27 @@ int main()
         {
             switch(state)
             {
-            case OFF:
-                pwm_disable_all();
+            case ALL:
                 PORTC &= 0xF8;// resets three LSBs
                 break;
             case RED:
-                pwm_enable_all();
                 PORTC &= 0xF8;
-                PORTC |= 0x01;
+                PORTC |= 0x04;
                 break;
             case GREEN:
-                pwm_enable_all();
                 PORTC &= 0xF8;
                 PORTC |= 0x02;
                 break;
             case BLUE:
-                pwm_enable_all();
                 PORTC &= 0xF8;
-                PORTC |= 0x04;
+                PORTC |= 0x01;
                 break;
             case WHITE:
-                pwm_enable_all();
                 PORTC &= 0xF8;
                 PORTC |= 0x07;
                 break;
             default:
-                pwm_disable_all();
-                state = OFF;
+                state = ALL;
                 break;
             }
         }
@@ -178,24 +204,69 @@ int main()
         {
             switch(state)
             {
+            case ALL:
+                increment_factor = rotary_movement * INCREMENT_FACTOR;
+                dutycycle_red = find_new_dutycycle(
+                    dutycycle_red,
+                    increment_factor
+                );
+                dutycycle_green = find_new_dutycycle(
+                    dutycycle_green,
+                    increment_factor
+                );
+                dutycycle_blue = find_new_dutycycle(
+                    dutycycle_blue,
+                    increment_factor
+                );
+                dutycycle_white = find_new_dutycycle(
+                    dutycycle_white,
+                    increment_factor
+                );
+                RED_PWM_REG = dutycycle_red;
+                GREEN_PWM_REG = dutycycle_green;
+                BLUE_PWM_REG = dutycycle_blue;
+                WHITE_PWM_REG = dutycycle_white;
+                break;
             case RED:
-                dutycycle_red += (rotary_movement * INCREMENT_FACTOR);
-                OCR0A = dutycycle_red;
+                dutycycle_red = find_new_dutycycle(
+                    dutycycle_red,
+                    rotary_movement * INCREMENT_FACTOR
+                );
+                RED_PWM_REG = dutycycle_red;
                 break;
             case GREEN:
-                dutycycle_green += (rotary_movement * INCREMENT_FACTOR);
-                OCR0B = dutycycle_green;
+                dutycycle_green = find_new_dutycycle(
+                    dutycycle_green,
+                    rotary_movement * INCREMENT_FACTOR
+                );
+                GREEN_PWM_REG = dutycycle_green;
                 break;
             case BLUE:
-                dutycycle_blue += (rotary_movement * INCREMENT_FACTOR);
-                OCR2A = dutycycle_blue;
+                dutycycle_blue = find_new_dutycycle(
+                    dutycycle_blue,
+                    rotary_movement * INCREMENT_FACTOR
+                );
+                BLUE_PWM_REG = dutycycle_blue;
                 break;
             case WHITE:
-                dutycycle_white += (rotary_movement * INCREMENT_FACTOR);
-                OCR2B = dutycycle_white;
+                dutycycle_white = find_new_dutycycle(
+                    dutycycle_white,
+                    rotary_movement * INCREMENT_FACTOR
+                );
+                WHITE_PWM_REG = dutycycle_white;
                 break;
             default:
                 break;
+            }
+            if (
+                dutycycle_red |
+                dutycycle_green |
+                dutycycle_blue |
+                dutycycle_white
+            ) {
+                pwm_enable_all();
+            } else {
+                pwm_disable_all();
             }
             rotary_movement = 0;
         }

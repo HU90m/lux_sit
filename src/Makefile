@@ -2,8 +2,14 @@ NAME=light
 
 DEVICE= atmega328p
 PROGRAMMER= arduino
-BAUDRATE= 115200
-PORT= /dev/ttyACM0
+
+# Old Arduino Nano Board's Settings
+BAUDRATE= 57600
+PORT= /dev/ttyUSB0
+
+# Normal Settings
+#BAUDRATE= 115200
+#PORT= /dev/ttyACM0
 
 CC=avr-gcc
 CFLAGS=-Wall -Os -DF_CPU=16000000UL -mmcu=${DEVICE}
