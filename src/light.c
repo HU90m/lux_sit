@@ -13,12 +13,12 @@
 #define LOWER_INCREMENT_FACTOR 1
 #define INCREMENT_FACTOR_THRESHOLD 48
 
-#define BREATHE_LOWER_INCREMENT_FACTOR 1
-#define BREATHE_UPPER_INCREMENT_FACTOR 10
-#define BREATHE_INCREMENT_THRESHOLD 100
+#define COUNTER_LOWER_INCREMENT_FACTOR 1
+#define COUNTER_UPPER_INCREMENT_FACTOR 10
+#define COUNTER_INCREMENT_THRESHOLD 100
 
-#define BREATHE_COUNTER_UPPER 600
-#define BREATHE_COUNTER_LOWER 1
+#define COUNTER_UPPER 600
+#define COUNTER_LOWER 1
 
 #define MAIN_LOOP_DELAY 10
 
@@ -45,8 +45,24 @@ typedef enum
     GREEN,
     BLUE,
     WHITE,
-    BREATHE
+    BREATHE,
+    GBR
 } state_t;
+
+//
+// Type: gbr_state_t
+//
+// The state of the gbr colour changing.
+//
+typedef enum
+{
+    GBR_GREEN,
+    GBR_CYAN,
+    GBR_BLUE,
+    GBR_MAGENTA,
+    GBR_RED,
+    GBR_YELLOW
+} gbr_state_t;
 
 
 
@@ -96,6 +112,9 @@ ISR(INT0_vect)
             state = BREATHE;
             break;
         case BREATHE:
+            state = GBR;
+            break;
+        case GBR:
             state = ALL;
             break;
         default:
@@ -165,28 +184,26 @@ uint8_t find_new_dutycycle(uint8_t current_dutycycle, int8_t change) {
     return current_dutycycle + (change * increment_factor);
 }
 
-uint16_t find_new_breathe_counter_max(
-        uint16_t current_breathe_counter_max,
-        int8_t change
-) {
-    int32_t new_breathe_max;
+uint16_t find_new_counter_max(uint16_t current_counter_max, int8_t change)
+{
+    int32_t new_counter_max;
     uint8_t increment_factor;
 
-    if( current_breathe_counter_max > BREATHE_INCREMENT_THRESHOLD)
-        increment_factor = BREATHE_UPPER_INCREMENT_FACTOR;
+    if( current_counter_max > COUNTER_INCREMENT_THRESHOLD)
+        increment_factor = COUNTER_UPPER_INCREMENT_FACTOR;
     else
-        increment_factor = BREATHE_LOWER_INCREMENT_FACTOR;
+        increment_factor = COUNTER_LOWER_INCREMENT_FACTOR;
 
-    new_breathe_max = current_breathe_counter_max + (change * increment_factor);
+    new_counter_max = current_counter_max + (change * increment_factor);
 
-    if(new_breathe_max > BREATHE_COUNTER_UPPER){
-        return BREATHE_COUNTER_UPPER;
+    if(new_counter_max > COUNTER_UPPER){
+        return COUNTER_UPPER;
     }
-    if(new_breathe_max < BREATHE_COUNTER_LOWER){
-        return BREATHE_COUNTER_LOWER;
+    if(new_counter_max < COUNTER_LOWER){
+        return COUNTER_LOWER;
     }
 
-    return current_breathe_counter_max + (change * increment_factor);
+    return current_counter_max + (change * increment_factor);
 }
 
 
@@ -216,14 +233,24 @@ int main()
     uint8_t dutycycle_white = 0x0;
 
     // breathe variables
-    uint16_t breathe_counter = BREATHE_COUNTER_UPPER -1;
-    uint16_t breathe_counter_max = BREATHE_COUNTER_UPPER;
+    uint16_t breathe_counter = COUNTER_UPPER -1;
+    uint16_t breathe_counter_max =
+        (COUNTER_UPPER + COUNTER_LOWER)/2;
     uint8_t breathe_count_up = 0;
 
     float white_multiplier;
     float blue_multiplier;
     float green_multiplier;
     float red_multiplier;
+
+    // gbr algorithm
+    uint16_t gbr_counter = COUNTER_UPPER -1;
+    uint16_t gbr_counter_max =
+        (COUNTER_UPPER + COUNTER_LOWER)/2;
+
+    float gbr_multiplier;
+
+    gbr_state_t gbr_state = GBR_CYAN;
 
 
     while(1)
@@ -275,6 +302,10 @@ int main()
             case BREATHE:
                 PORTC &= 0xF8;
                 PORTC |= 0x05;
+                break;
+            case GBR:
+                PORTC &= 0xF8;
+                PORTC |= 0x06;
                 break;
             default:
                 state = ALL;
@@ -337,8 +368,14 @@ int main()
                 WHITE_PWM_REG = dutycycle_white;
                 break;
             case BREATHE:
-                breathe_counter_max = find_new_breathe_counter_max(
+                breathe_counter_max = find_new_counter_max(
                     breathe_counter_max,
+                    rotary_movement
+                );
+                break;
+            case GBR:
+                gbr_counter_max = find_new_counter_max(
+                    gbr_counter_max,
                     rotary_movement
                 );
                 break;
@@ -349,7 +386,8 @@ int main()
                 dutycycle_red |
                 dutycycle_green |
                 dutycycle_blue |
-                dutycycle_white
+                dutycycle_white |
+                (state == GBR)
             ) {
                 pwm_enable_all();
             } else {
@@ -358,8 +396,12 @@ int main()
             rotary_movement = 0;
         }
 
-        // Breathe algorithm
-        if( state == BREATHE ) {
+        // State Run-times
+        switch(state)
+        {
+        case BREATHE:
+            if ( breathe_count_up ) breathe_counter++;
+            else breathe_counter--;
 
             white_multiplier = dutycycle_white;
             white_multiplier /= breathe_counter_max;
@@ -378,12 +420,60 @@ int main()
             GREEN_PWM_REG = breathe_counter * green_multiplier;
             RED_PWM_REG = breathe_counter * red_multiplier;
 
-
-            if ( breathe_count_up ) breathe_counter++;
-            else breathe_counter--;
-
-            if( breathe_counter > breathe_counter_max ) breathe_count_up = 0;
+            if( breathe_counter > breathe_counter_max -1) breathe_count_up = 0;
             if( breathe_counter <  1) breathe_count_up = 1;
+
+            break;
+
+        case GBR:
+            gbr_multiplier = 0xFF;
+            gbr_multiplier /= gbr_counter_max;
+
+            switch(gbr_state)
+            {
+            case GBR_CYAN:
+                gbr_counter++;
+                dutycycle_blue = gbr_multiplier*gbr_counter;
+                if (gbr_counter > gbr_counter_max -1) gbr_state = GBR_BLUE;
+                break;
+
+            case GBR_BLUE:
+                gbr_counter--;
+                dutycycle_green = gbr_multiplier*gbr_counter;
+                if (gbr_counter < 1) gbr_state = GBR_MAGENTA;
+                break;
+
+            case GBR_MAGENTA:
+                gbr_counter++;
+                dutycycle_red = gbr_multiplier*gbr_counter;
+                if (gbr_counter > gbr_counter_max -1) gbr_state = GBR_RED;
+                break;
+
+            case GBR_RED:
+                gbr_counter--;
+                dutycycle_blue = gbr_multiplier*gbr_counter;
+                if (gbr_counter < 1) gbr_state = GBR_YELLOW;
+                break;
+
+            case GBR_YELLOW:
+                gbr_counter++;
+                dutycycle_green = gbr_multiplier*gbr_counter;
+                if (gbr_counter > gbr_counter_max -1) gbr_state = GBR_GREEN;
+                break;
+
+            case GBR_GREEN:
+                gbr_counter--;
+                dutycycle_red = gbr_multiplier*gbr_counter;
+                if (gbr_counter < 1) gbr_state = GBR_CYAN;
+                break;
+            }
+            RED_PWM_REG = dutycycle_red;
+            GREEN_PWM_REG = dutycycle_green;
+            BLUE_PWM_REG = dutycycle_blue;
+            break;
+
+        default:
+            break;
         }
 
         // state
